@@ -1,0 +1,102 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+
+
+
+DataLocation = "C:\\Users\\Steven Ueckermann\\Documents\\FPD" #Location of the file we want to open, using the r to turn it into the correct path format
+CombinedStoreLocation = "C:\\Users\\Steven Ueckermann\\Documents\\ProcessedDataStore.txt"
+
+
+
+#Take the experimental values and turns them into variables, this makes any data analysis later easier
+def ExperimentalVariables(comments):
+    
+    XRotation = comments.iloc[0,1]
+    YRotation = comments.iloc[1,1]
+    RPMX = float(comments.iloc[2,1])
+    RPMY = float(comments.iloc[3,1])
+    RunTime = 1000*float(comments.iloc[4,1]) #converting run time to ms because Seth is silly
+    VoltageSamplingDelay = float(comments.iloc[5,1])
+    FileComments = comments.iloc[6,1]
+    return XRotation, YRotation, RPMX, RPMY, RunTime, VoltageSamplingDelay, FileComments
+
+
+
+#Calculations
+def Calculations(RunTime, VoltageSamplingDelay, data):
+    
+    MeasurementDelay = int(2) #Number of readings chosen such that after readings have finished being taken the system is allowed time to rebound to zero so that our averages do not overlap
+    #RunEndIndex = int(RunTime/VoltageSamplingDelay)  #Finds the index of the row where the disc stops spinning
+    MaxDifferenceLocation = data['Volt_Reading'].diff().argmax()
+    DataLength = len(data.index) #Finds number of rows in the data dataframe
+    BackgroundLength = int(DataLength-MaxDifferenceLocation)
+    AverageBackground = np.average(data.iloc[-(BackgroundLength-MeasurementDelay):,1]) #find the average background voltage by finding the mean of the data after the disc has stopped spinning
+    ErrorInBackground = np.std(data.iloc[-(BackgroundLength-MeasurementDelay):,1]) #find the standard deviation in the background voltage readings
+    AverageReadings = np.average(data.iloc[:(MaxDifferenceLocation-MeasurementDelay), 1]) #find the average voltage from the readings taken
+    ErrorInReadings = np.std(data.iloc[:(MaxDifferenceLocation-MeasurementDelay), 1]) #find the standard deviation of the voltage readings taken
+    ZerodVoltageReadings = data - AverageBackground #zeros the voltage readings so they are all now relative to zero and we can tell if emfs are postive or negative still
+       
+    return AverageBackground, ErrorInBackground, AverageReadings, ErrorInReadings, ZerodVoltageReadings, MeasurementDelay
+
+#plotting options
+def PlotOptions(ZerodVoltageReadings):
+    
+    plt.scatter(ZerodVoltageReadings['Time'], ZerodVoltageReadings['Volt_Reading'], c='black', marker = 'x')
+    #plt.errorbar(ZerodVoltageReadings['Time'],ZerodVoltageReadings['Volt_Reading'],)
+    plt.xlabel('Time [ms]')
+    plt.ylabel('Voltage [V]')
+    plt.grid(which = 'major', linestyle='-', linewidth='0.5', color='red')
+    #supstring = str("X Rotation = " + XRotation + ', ' + "Y Rotation = " + YRotation + ', ' + "X RPM = " + RPMX + ', ' + "Y RPM = " + RPMY + ', ' + "Run Time = " + RunTime + ', ' + "Sampling Delay = " + VoltageSamplingDelay + ', ' + "Comments: " + FileComments)
+    #plt.suptitle(supstring, horizontalalignment = 'right', verticalalignment = 'bottom', fontsize = '12')
+
+
+
+#File Saving
+def FileSaving(AverageReadings, ErrorInReadings, AverageBackground, ErrorInBackground, MeasurementDelay, CombinedStoreLocation, DataLocation, XRotation, YRotation, RPMX, RPMY, RunTime, VoltageSamplingDelay, FileComments):
+    
+    SavedData = open(CombinedStoreLocation, "a+")
+    CombinedStoreTitle = str("DataLocation" + ', ' + "AverageReadings" + ', ' + "ErrorInReadings" + ', ' + "AverageBackground" + ', ' + "MeasurementDelay" + ', ' + "XRotation" + ', ' + "YRotation" + ', ' + "RPMX" + ', ' + "RPMY" + ', ' + "RunTime" + ', ' + "VoltageSamplingDelay" + ', '+ "FileComments")
+    AverageReadings = str(AverageReadings) #Converting all the variables to strings as the numpy ones cannot be passed to a text file to be saved
+    ErrorInReadings = str(ErrorInReadings)
+    AverageBackground = str(AverageBackground)
+    ErrorInBackground = str(ErrorInBackground)
+    MeasurementDelay = str(MeasurementDelay)
+    XRotation = str(XRotation)
+    YRotation = str(YRotation)
+    RPMX = str(RPMX)
+    RPMY = str(RPMY)
+    RunTime = str(RunTime)
+    VoltageSamplingDelay = str(VoltageSamplingDelay)
+    FileComments = str(FileComments)
+    if 'CombinedStoreTitle' in CombinedStoreLocation:
+        SavedData.write(DataLocation + '\\' + file + ', ' + AverageReadings + ', ' + ErrorInReadings +', ' + AverageBackground + ', ' + MeasurementDelay + ', ' + XRotation + ', ' + YRotation + ', ' + RPMX + ', ' + RPMY + ', ' + RunTime + ', ' + VoltageSamplingDelay + ', ' + FileComments + '\n')
+        SavedData.close()
+    else:
+        SavedData.write(CombinedStoreTitle)
+        SavedData.write(DataLocation + '\\' + file + ', ' + AverageReadings + ', ' + ErrorInReadings +', ' + AverageBackground + ', ' + MeasurementDelay + ', ' + XRotation + ', ' + YRotation + ', ' + RPMX + ', ' + RPMY + ', ' + RunTime + ', ' + VoltageSamplingDelay + ', ' + FileComments + '\n')
+        SavedData.close()
+
+
+
+def AutoAnalysis(AverageReadings,  AverageBackground, MeasurementDelay, CombinedStoreLocation, DataLocation, XRotation, YRotation, RPMX, RPMY, RunTime, VoltageSamplingDelay, FileComments):
+    
+    for file in os.listdir(DataLocation):
+        
+        comments = pd.read_csv(DataLocation + '\\' + file, nrows=8, delimiter = ":") #Read the experimental specification data from the text file up to a certain point, seperate name of specification and value by a colon
+        data = pd.read_csv(DataLocation + '\\' + file, header=9, delim_whitespace=True) #Read the data fromt the text file ignoring the top lines which contain experimental specifications, columns are seperated by white space
+        XRotation, YRotation, RPMX, RPMY, RunTime, VoltageSamplingDelay, FileComments = ExperimentalVariables(comments)
+        AverageBackground, ErrorInBackground, AverageReadings, ErrorInReadings, ZerodVoltageReadings, MeasurementDelay = Calculations(RunTime, VoltageSamplingDelay, data)
+        #PlotOptions(ZerodVoltageReadings)
+        FileSaving(AverageReadings, ErrorInReadings, AverageBackground, ErrorInBackground, MeasurementDelay, CombinedStoreLocation, DataLocation, XRotation, YRotation, RPMX, RPMY, RunTime, VoltageSamplingDelay, FileComments)
+
+
+
+def SummaryAnalysis(CombinedStoreLocation):
+    SummaryData = pd.read_csv(CombinedStoreLocation, delimiter = ",", error_bad_lines=False)
+    #print(SummaryData)
+
+
+AutoAnalysis(AverageReadings, AverageBackground, MeasurementDelay, CombinedStoreLocation, DataLocation, XRotation, YRotation, RPMX, RPMY, RunTime, VoltageSamplingDelay, FileComments)
+SummaryAnalysis(CombinedStoreLocation)
